@@ -1,0 +1,108 @@
+html {
+    height: 100%;
+    overflow: auto;
+}
+
+body {
+    text-align: center;
+    background-image: linear-gradient(#34e1ff, #2ff1b1);
+}
+
+#writtenCode {
+    width: 60%;
+    resize: none;
+    background-color: #0000008c;
+    border-color: #00000000;
+    border-radius: 3%;
+    outline: none;
+    color: white;
+    font-size: 1rem;
+    font-family: consolas;
+}
+
+#path {
+    position: relative;
+    /*margin-top: -32%;*/
+    left: -40%;
+    font-family: helvetica;
+    font-size: 1.5rem;
+}
+
+.pathText {
+    color: #0f2f3d;
+    margin-bottom: 0%;
+}
+
+.font {
+    position: relative;
+    right: 40%;
+    top: 6%;
+    font-family: helvetica;
+    font-size: 1.5rem;
+    margin-left: -7%;
+}
+
+#saveButton {
+    position: relative;
+    right: 40%;
+    margin-bottom: -50%;
+    font-size: 2rem;
+    border-radius: 7%;
+    border: none;
+    background: #ffffff6b;
+}
+
+#plusButton {
+    border-radius: 7%;
+    border: none;
+    background: #ffffff96;
+    position: relative;
+    right: 1%;
+}
+
+#minusButton {
+    border-radius: 7%;
+    border: none;
+    background: #ffffff96;
+    position: relative;
+    left: 1%;
+}
+
+.switcher {
+    position: relative;
+    width: 20%;
+    margin-right: 0%;
+    top: 6%;
+}
+
+#path button {
+    border-radius: 7%;
+    border: none;
+    background: #ffffff96;
+}
+
+#ImgAndText {
+    width: 100%;
+    margin-top: 2%;
+    /*margin-right: -50%;*/
+    margin-left: -19.2%;
+}
+
+#settingsStuff {
+    margin-left: 80%;
+    margin-top: -43%;
+}
+
+#inputFile {
+    margin-left: 15%;
+}
+
+#runButton {
+    position: absolute; 
+    border-radius: 7%; 
+    border: none;
+    background: #ffffff96;
+    font-size: 1.5rem; 
+    right: 27.5%;
+    bottom: 50%;
+}
