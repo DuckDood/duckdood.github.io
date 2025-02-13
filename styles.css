@@ -7,8 +7,12 @@ color: white;
 	display: flex;
 	justify-content: center;
 	margin-top: 2%;
+	animation: spin 2s infinite linear;
+	
 }
-
+.headspin {
+perspective:300px;
+}
 .headbar {
 	background: #5bc8e3;
 	position: fixed;
@@ -32,8 +36,8 @@ html {
 }
 
 @keyframes spin{
-from {transform: rotateY(0deg);}
-to {transform: rotateY(360deg);}
+from {transform: rotateY(0deg) translateZ(7em);}
+to {transform: rotateY(360deg) translateZ(7em);}
 }
 
 .spin {
