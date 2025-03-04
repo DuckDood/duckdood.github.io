@@ -1,20 +1,26 @@
 body {
 font-family: sans-serif;
-color: white;
+color: white;}
+html {
+background-image: linear-gradient(to right, #001438, #3b646e)!important;
 }
 
 .Header {
 	display: flex;
 	justify-content: center;
+	  margin-left: auto;
+  margin-right: auto;
 	margin-top: 2%;
 	animation: spin 2s infinite linear;
+	width: 25%;
 	
 }
 .headspin {
 perspective:300px;
 }
+
 .headbar {
-	background: #5bc8e3;
+	background: linear-gradient(to left, #5bc8e3, #5b8fe3);
 	position: fixed;
 	padding: 0.4%;
 	top: 0%;
@@ -41,5 +47,5 @@ to {transform: rotateY(360deg) translateZ(7em);}
 }
 
 .spin {
-	animation: spin 2s;
+	animation: spin 0.1s;
 }

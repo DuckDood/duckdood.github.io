@@ -43,7 +43,7 @@ saveButton.addEventListener("click", saveCode);
 function saveCode() {
     writtenCode.select();
     writtenCode.setSelectionRange(0, 99999);
-    navigator.clipboard.writeText("cd..\n" + "cd..\n" + "cd..\n" + "cd..\n" + "cd..\n" + "echo -n '"  + writtenCode.value + "' > " + realPath);
+    navigator.clipboard.writeText("cd ..\n" + "cd ..\n" + "cd ..\n" + "cd ..\n" + "cd ..\n" + "echo -n '"  + writtenCode.value + "' > " + realPath);
     document.body.append(returnPara);
 }
 
