@@ -10,13 +10,13 @@ background-image: linear-gradient(to right, #001438, #3b646e)!important;
 	justify-content: center;
 	  margin-left: auto;
   margin-right: auto;
-	margin-top: 2%;
+	margin-top: calc(3%);
 	animation: spin 2s infinite linear;
 	width: 25%;
 	
 }
 .headspin {
-perspective:300px;
+	perspective: 80vh;
 }
 
 .headbar {
