@@ -35,6 +35,16 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: build-files
+          path: build/
       - run: |
           ls
-          ls build-files
+          mkdir -p physics_demo
+          mv build/* physics_demo
+          
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add physics_demo/
+          git commit -m "push physics demo"
+          git push
+          
