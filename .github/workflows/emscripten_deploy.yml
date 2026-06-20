@@ -16,6 +16,7 @@ jobs:
           repository: DuckDood/fpeeee
       - run: |
           ls
+          embuilder build sdl3
           emmake make -f Makefile_emscripten
           ls
           ls build
