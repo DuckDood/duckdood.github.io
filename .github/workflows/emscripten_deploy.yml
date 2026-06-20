@@ -16,4 +16,6 @@ jobs:
       - uses: actions/checkout@master
         with:
           name: DuckDood/fpeeee 
-      - run: ls fpeeee
+      - run: |
+          ls
+          make
