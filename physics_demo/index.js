@@ -16,9 +16,14 @@
 
   // Note: We use a typeof check here instead of optional chaining using
   // globalThis because older browsers might not have globalThis defined.
-  var currentNodeVersion = typeof process !== 'undefined' && process.versions?.node ? humanReadableVersionToPacked(process.versions.node) : TARGET_NOT_SUPPORTED;
-  if (currentNodeVersion < 180300) {
-    throw new Error(`This emscripten-generated code requires node v${ packedVersionToHumanReadable(180300) } (detected v${packedVersionToHumanReadable(currentNodeVersion)})`);
+
+  // We skip the node version checking when running on Bun/Deno since the node
+  // version they report doesn't seem to be useful.
+  if (typeof process !== 'undefined' && !process.versions?.bun && typeof Deno == "undefined") {
+    var currentNodeVersion = process.versions?.node ? humanReadableVersionToPacked(process.versions.node) : TARGET_NOT_SUPPORTED;
+    if (currentNodeVersion < 180300) {
+      throw new Error(`This emscripten-generated code requires node v${ packedVersionToHumanReadable(180300) } (detected v${packedVersionToHumanReadable(currentNodeVersion)})`);
+    }
   }
 
   var userAgent = typeof navigator !== 'undefined' && navigator.userAgent;
@@ -286,44 +291,6 @@ function _free() {
 var isFileURI = (filename) => filename.startsWith('file://');
 
 // include: runtime_common.js
-// include: runtime_stack_check.js
-// Initializes the stack cookie. Called at the startup of main and at the startup of each thread in pthreads mode.
-function writeStackCookie() {
-  var max = _emscripten_stack_get_end();
-  assert((max & 3) == 0);
-  // If the stack ends at address zero we write our cookies 4 bytes into the
-  // stack.  This prevents interference with SAFE_HEAP and ASAN which also
-  // monitor writes to address zero.
-  if (max == 0) {
-    max += 4;
-  }
-  // The stack grow downwards towards _emscripten_stack_get_end.
-  // We write cookies to the final two words in the stack and detect if they are
-  // ever overwritten.
-  HEAPU32[((max)>>2)] = 0x02135467;
-  HEAPU32[(((max)+(4))>>2)] = 0x89BACDFE;
-  // Also test the global address 0 for integrity.
-  HEAPU32[((0)>>2)] = 1668509029;
-}
-
-function checkStackCookie() {
-  if (ABORT) return;
-  var max = _emscripten_stack_get_end();
-  // See writeStackCookie().
-  if (max == 0) {
-    max += 4;
-  }
-  var cookie1 = HEAPU32[((max)>>2)];
-  var cookie2 = HEAPU32[(((max)+(4))>>2)];
-  if (cookie1 != 0x02135467 || cookie2 != 0x89BACDFE) {
-    abort(`Stack overflow! Stack cookie has been overwritten at ${ptrToString(max)}, expected hex dwords 0x89BACDFE and 0x2135467, but received ${ptrToString(cookie2)} ${ptrToString(cookie1)}`);
-  }
-  // Also test the global address 0 for integrity.
-  if (HEAPU32[((0)>>2)] != 0x63736d65 /* 'emsc' */) {
-    abort('Runtime error: The application has corrupted its heap memory area (address zero)!');
-  }
-}
-// end include: runtime_stack_check.js
 // include: runtime_exceptions.js
 // Base Emscripten EH error class
 class EmscriptenEH {}
@@ -472,6 +439,51 @@ function unexportedRuntimeSymbol(sym) {
 }
 
 // end include: runtime_debug.js
+// include: runtime_stack_check.js
+const stackCookie1 = 0x02135467;
+const stackCookie2 = 0x89BACDFE;
+
+// Initializes the stack cookie. Called at the startup of main and at the startup of each thread in pthreads mode.
+function writeStackCookie() {
+  var max = _emscripten_stack_get_end();
+  assert((max & 3) == 0);
+  // If the stack ends at address zero we write our cookies 4 bytes into the
+  // stack.  This prevents interference with SAFE_HEAP and ASAN which also
+  // monitor writes to address zero.
+  if (max == 0) {
+    max += 4;
+  }
+  // The stack grow downwards towards _emscripten_stack_get_end.
+  // We write cookies to the final two words in the stack and detect if they are
+  // ever overwritten.
+  HEAPU32[((max)>>2)] = stackCookie1;
+  HEAPU32[(((max)+(4))>>2)] = stackCookie2;
+  // Also test the global address 0 for integrity.
+  HEAPU32[((0)>>2)] = 1668509029;
+}
+
+function u32ToHexString(num) {
+  return '0x' + (num >>> 0).toString(16).padStart(8, '0');
+}
+
+function checkStackCookie() {
+  if (ABORT) return;
+  var max = _emscripten_stack_get_end();
+  // See writeStackCookie().
+  if (max == 0) {
+    max += 4;
+  }
+  var val1 = HEAPU32[((max)>>2)];
+  var val2 = HEAPU32[(((max)+(4))>>2)];
+  if (val1 != stackCookie1 || val2 != stackCookie2) {
+    abort(`Stack overflow! Stack cookie has been overwritten at ${ptrToString(max)}, expected hex dwords ${u32ToHexString(stackCookie2)} and ${u32ToHexString(stackCookie1)}, but received ${u32ToHexString(val2)} ${u32ToHexString(val1)}`);
+  }
+  // Also test the global address 0 for integrity.
+  if (HEAPU32[((0)>>2)] != 0x63736d65 /* 'emsc' */) {
+    abort('Runtime error: The application has corrupted its heap memory area (address zero)!');
+  }
+}
+// end include: runtime_stack_check.js
 // Memory management
 
 var runtimeInitialized = false;
@@ -1820,6 +1832,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   var runDependencies = 0;
   
   
+  var dependenciesPromiseResolve = null;
   
   var runDependencyTracking = {
   };
@@ -1838,17 +1851,16 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           clearInterval(runDependencyWatcher);
           runDependencyWatcher = null;
         }
-        dependenciesPromise.resolve();
+        dependenciesPromiseResolve();
       }
     };
   
   
   
+  
   var addRunDependency = (id) => {
       if (!runDependencies) {
-        var resolve;
-        dependenciesPromise = new Promise((r) => resolve = r);
-        dependenciesPromise.resolve = resolve;
+        dependenciesPromise = new Promise((resolve) => dependenciesPromiseResolve = resolve);
       }
       runDependencies++;
   
@@ -2021,6 +2033,48 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         }
         get isDevice() {
           return FS.isChrdev(this.mode);
+        }
+        // The per-inode readiness wait-queue. The node carries a Set of listener
+        // entries {cb}; producers (SOCKFS, PIPEFS) call notifyListeners on a
+        // readiness transition, and poll()/epoll consume it. It lives on the node
+        // (not the fd) so dup'd fds share one queue. Only nodes that derive real
+        // readiness (sockets, pipes, and an epoll's own node) ever use this -
+        // always-ready types (regular files, ttys) never register or notify.
+        addListener(cb, exclusive = false) {
+          var entry = {cb, exclusive};
+          var listeners = (this.listeners ??= new Set());
+          listeners.add(entry);
+          return {listeners, entry};
+        }
+        notifyListeners(flags) {
+          // Iterates the set without copying, which is safe ONLY under a
+          // load-bearing contract that every internal listener must honour:
+          //   1. A listener must not run user code synchronously (a poll waiter only
+          //      resolves a Promise; an epoll registration only re-lists +
+          //      re-notifies; the epoll callback only schedules a tick). User code
+          //      runs on a later tick, never inside this loop.
+          //   2. A listener may delete entries only from ITS OWN waiter, never from
+          //      a sibling node's set that may be mid-iteration. (Deleting an entry
+          //      of the set being iterated here is fine - a Set tolerates removal of
+          //      a not-yet-visited entry mid-iteration; mutating a *different* node's
+          //      set is fine because that set is not being iterated.)
+          // Violating either gives silently skipped wakeups that are near-impossible
+          // to reproduce. Any new producer/listener must preserve it.
+          if (!this.listeners) return;
+          // Fire every non-exclusive listener. Among EPOLLEXCLUSIVE registrations
+          // (one fd watched by several epolls) wake only one, rotating round-robin
+          // per node, to avoid a thundering herd. (Only epoll registrations are ever
+          // exclusive; poll waiters and a node's own consumers are not.)
+          var excl;
+          for (var entry of this.listeners) {
+            if (entry.exclusive) (excl ||= []).push(entry);
+            else entry.cb(flags);
+          }
+          if (excl) {
+            var i = (this.exclTurn || 0) % excl.length;
+            this.exclTurn = i + 1;
+            excl[i].cb(flags);
+          }
         }
       },
   lookupPath(path, opts = {}) {
@@ -2599,6 +2653,25 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         }
         return parent.node_ops.symlink(parent, newname, oldpath);
       },
+  link(oldpath, newpath, flags) {
+        var lookup = FS.lookupPath(newpath, { parent: true });
+        var parent = lookup.node;
+        if (!parent) {
+          throw new FS.ErrnoError(44);
+        }
+        var newname = PATH.basename(newpath);
+        var errCode = FS.mayCreate(parent, newname);
+        if (errCode) {
+          throw new FS.ErrnoError(errCode);
+        }
+        // Hardlinks are only supported by filesystem backends that provide a
+        // `link` node op (e.g. NODERAWFS backed by the host). NODEFS omits it:
+        // a host hardlink cannot be confined to the mount root.
+        if (!parent.node_ops.link) {
+          throw new FS.ErrnoError(34);
+        }
+        return parent.node_ops.link(parent, newname, oldpath, flags);
+      },
   rename(old_path, new_path) {
         var old_dirname = PATH.dirname(old_path);
         var new_dirname = PATH.dirname(new_path);
@@ -2845,13 +2918,12 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         }
         FS.doTruncate(stream, stream.node, len);
       },
-  utime(path, atime, mtime) {
-        var lookup = FS.lookupPath(path, { follow: true });
-        var node = lookup.node;
-        var setattr = FS.checkOpExists(node.node_ops.setattr, 63);
-        setattr(node, {
+  utime(path, atime, mtime, dontFollow) {
+        var lookup = FS.lookupPath(path, { follow: !dontFollow });
+        FS.doSetAttr(null, lookup.node, {
           atime: atime,
-          mtime: mtime
+          mtime: mtime,
+          dontFollow
         });
       },
   open(path, flags, mode = 0o666) {
@@ -2952,6 +3024,11 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           throw new FS.ErrnoError(8);
         }
         if (stream.getdents) stream.getdents = null; // free readdir state
+        // The fd is going away: wake anything waiting on it (poll/epoll) with
+        // POLLNVAL so a blocking wait unblocks and an epoll registration is evicted
+        // on its next derive. Only sockets/pipes/epoll ever carry a wait-queue, so
+        // for every other stream (incl. nodeless noderawfs stdio) this is a no-op.
+        stream.node?.notifyListeners(32);
         try {
           if (stream.stream_ops.close) {
             stream.stream_ops.close(stream);
@@ -4520,8 +4597,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
       }
     };
   
-  var currentFullscreenStrategy = {
-  };
+  var currentFullscreenStrategy = 0;
   
   var wasmTableMirror = [];
   
@@ -4535,6 +4611,11 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
       /** @suppress {checkTypes} */
       assert(wasmTable.get(funcPtr) == func, 'table mirror is out of date');
       return func;
+    };
+  var callCanvasResizedCallback = (strategy) => {
+      if (strategy.canvasResizedCallback) {
+        getWasmTableEntry(strategy.canvasResizedCallback)(37, 0, strategy.canvasResizedCallbackUserData);
+      }
     };
   var registerRestoreOldStyle = (canvas) => {
       var canvasSize = getCanvasElementSize(canvas);
@@ -4589,9 +4670,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           canvas.style.imageRendering = oldImageRendering;
           if (canvas.GLctxObject) canvas.GLctxObject.GLctx.viewport(0, 0, oldWidth, oldHeight);
   
-          if (currentFullscreenStrategy.canvasResizedCallback) {
-            getWasmTableEntry(currentFullscreenStrategy.canvasResizedCallback)(37, 0, currentFullscreenStrategy.canvasResizedCallbackUserData);
-          }
+          callCanvasResizedCallback(currentFullscreenStrategy);
         }
       }
       document.addEventListener('fullscreenchange', restoreOldStyle);
@@ -4681,11 +4760,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
       }
   
       currentFullscreenStrategy = strategy;
-  
-      if (strategy.canvasResizedCallback) {
-        getWasmTableEntry(strategy.canvasResizedCallback)(37, 0, strategy.canvasResizedCallbackUserData);
-      }
-  
+      callCanvasResizedCallback(strategy);
       return 0;
     };
   var _emscripten_exit_fullscreen = () => {
@@ -7876,7 +7951,18 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         var ptr = HEAPU32[((iov)>>2)];
         var len = HEAPU32[(((iov)+(4))>>2)];
         iov += 8;
-        var curr = FS.read(stream, HEAP8, ptr, len, offset);
+        try {
+          var curr = FS.read(stream, HEAP8, ptr, len, offset);
+        } catch (e) {
+          // On a non-blocking stream a subsequent read may would-block after we
+          // already gathered data. POSIX readv is a single gather-read: return
+          // what we have rather than failing the whole call.
+          if (ret > 0 && e instanceof FS.ErrnoError &&
+              (e.errno == 6 || e.errno == 6)) {
+            break;
+          }
+          throw e;
+        }
         if (curr < 0) return -1;
         ret += curr;
         if (curr < len) break; // nothing more to read
@@ -7923,23 +8009,27 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
 
   /** @param {number=} offset */
   var doWritev = (stream, iov, iovcnt, offset) => {
-      var ret = 0;
-      for (var i = 0; i < iovcnt; i++) {
+      // Gather all iovecs into one contiguous buffer and issue a single
+      // FS.write, matching POSIX writev's single gather-write semantics (as
+      // __syscall_sendmsg already does). Per-iovec writes fragment a stream
+      // socket send into multiple segments, breaking stream byte semantics.
+      if (iovcnt == 1) {
+        // Single iovec: write directly from HEAP8, no gather buffer needed.
+        return FS.write(stream, HEAP8, HEAPU32[((iov)>>2)], HEAPU32[(((iov)+(4))>>2)], offset);
+      }
+      var total = 0;
+      for (var i = 0, p = iov; i < iovcnt; i++, p += 8) {
+        total += HEAPU32[(((p)+(4))>>2)];
+      }
+      var view = new Uint8Array(total);
+      var voff = 0;
+      for (var i = 0; i < iovcnt; i++, iov += 8) {
         var ptr = HEAPU32[((iov)>>2)];
         var len = HEAPU32[(((iov)+(4))>>2)];
-        iov += 8;
-        var curr = FS.write(stream, HEAP8, ptr, len, offset);
-        if (curr < 0) return -1;
-        ret += curr;
-        if (curr < len) {
-          // No more space to write.
-          break;
-        }
-        if (typeof offset != 'undefined') {
-          offset += curr;
-        }
+        view.set(HEAPU8.subarray(ptr, ptr + len), voff);
+        voff += len;
       }
-      return ret;
+      return FS.write(stream, view, 0, total, offset);
     };
   
   function _fd_write(fd, iov, iovcnt, pnum) {
@@ -8265,6 +8355,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'registerOrientationChangeEventCallback',
   'fillFullscreenChangeEventData',
   'registerFullscreenChangeEventCallback',
+  'callCanvasResizedCallback',
   'JSEvents_requestFullscreen',
   'JSEvents_resizeCanvasForFullscreen',
   'registerRestoreOldStyle',
@@ -8383,6 +8474,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'FS_mkdir',
   'FS_mkdev',
   'FS_symlink',
+  'FS_link',
   'FS_rename',
   'FS_rmdir',
   'FS_readdir',
