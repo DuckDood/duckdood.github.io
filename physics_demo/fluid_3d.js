@@ -4064,10 +4064,6 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         return 1; // Return non-zero on failure, can't set timing mode when there is no main loop.
       }
   
-      if (!MainLoop.running) {
-        
-        MainLoop.running = true;
-      }
       if (mode == 0) {
         MainLoop.scheduler = function MainLoop_scheduler_setTimeout() {
           var timeUntilNextTick = Math.max(0, MainLoop.tickStartTime + value - _emscripten_get_now())|0;
@@ -4186,7 +4182,6 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
       var thisMainLoopId = MainLoop.currentlyRunningMainloop;
       function checkIsRunning() {
         if (thisMainLoopId < MainLoop.currentlyRunningMainloop) {
-          
           maybeExit();
           return false;
         }
@@ -4195,10 +4190,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   
       // We create the loop runner here but it is not actually running until
       // _emscripten_set_main_loop_timing is called (which might happen at a
-      // later time).  This member signifies that the current runner has not
-      // yet been started so that we can call runtimeKeepalivePush when it
-      // gets its timing set for the first time.
-      MainLoop.running = false;
+      // later time).
       MainLoop.runner = function MainLoop_runner() {
         if (ABORT) return;
         if (MainLoop.queue.length > 0) {
@@ -4281,10 +4273,9 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
   
   var MainLoop = {
-  running:false,
+  func:null,
   scheduler:null,
   currentlyRunningMainloop:0,
-  func:null,
   arg:0,
   timingMode:0,
   timingValue:0,
@@ -4293,9 +4284,12 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   preMainLoop:[],
   postMainLoop:[],
   pause() {
-        MainLoop.scheduler = null;
-        // Incrementing this signals the previous main loop that it's now become old, and it must return.
-        MainLoop.currentlyRunningMainloop++;
+        if (MainLoop.scheduler) {
+          MainLoop.scheduler = null;
+          // Incrementing this signals the previous main loop that it's now become old, and it must return.
+          MainLoop.currentlyRunningMainloop++;
+          
+        }
       },
   resume() {
         MainLoop.currentlyRunningMainloop++;
