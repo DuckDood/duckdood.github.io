@@ -4936,10 +4936,15 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   /** @param {number=} timeout */
   var safeSetTimeout = (func, timeout) => {
       
-      return setTimeout(() => {
+      // Slot 0 is reserved so that, like setTimeout, ids are always non-zero.
+      safeSetTimeout.mapping ||= [0];
+      var id = safeSetTimeout.mapping.length;
+      safeSetTimeout.mapping[id] = setTimeout(() => {
+        safeSetTimeout.mapping[id] = undefined;
         
         callUserCallback(func);
       }, timeout);
+      return id;
     };
   
   
@@ -9442,6 +9447,7 @@ if (Module['printErr']) err = Module['printErr'];
   'convertPCtoSourceLocation',
   'wasiRightsToMuslOFlags',
   'wasiOFlagsToMuslOFlags',
+  'safeClearTimeout',
   'setImmediateWrapped',
   'safeRequestAnimationFrame',
   'clearImmediateWrapped',
@@ -9909,6 +9915,7 @@ var _fflush = makeInvalidEarlyAccess('_fflush');
 var _Emscripten_force_free = Module['_Emscripten_force_free'] = makeInvalidEarlyAccess('_Emscripten_force_free');
 var _emscripten_stack_get_end = makeInvalidEarlyAccess('_emscripten_stack_get_end');
 var _emscripten_stack_get_base = makeInvalidEarlyAccess('_emscripten_stack_get_base');
+var _setThrew = makeInvalidEarlyAccess('_setThrew');
 var _emscripten_stack_init = makeInvalidEarlyAccess('_emscripten_stack_init');
 var _emscripten_stack_get_free = makeInvalidEarlyAccess('_emscripten_stack_get_free');
 var __emscripten_stack_restore = makeInvalidEarlyAccess('__emscripten_stack_restore');
@@ -9946,6 +9953,7 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['Emscripten_force_free'] != 'undefined', 'missing Wasm export: Emscripten_force_free');
   assert(typeof wasmExports['emscripten_stack_get_end'] != 'undefined', 'missing Wasm export: emscripten_stack_get_end');
   assert(typeof wasmExports['emscripten_stack_get_base'] != 'undefined', 'missing Wasm export: emscripten_stack_get_base');
+  assert(typeof wasmExports['setThrew'] != 'undefined', 'missing Wasm export: setThrew');
   assert(typeof wasmExports['emscripten_stack_init'] != 'undefined', 'missing Wasm export: emscripten_stack_init');
   assert(typeof wasmExports['emscripten_stack_get_free'] != 'undefined', 'missing Wasm export: emscripten_stack_get_free');
   assert(typeof wasmExports['_emscripten_stack_restore'] != 'undefined', 'missing Wasm export: _emscripten_stack_restore');
@@ -9979,6 +9987,7 @@ function assignWasmExports(wasmExports) {
   _Emscripten_force_free = Module['_Emscripten_force_free'] = createExportWrapper('Emscripten_force_free', wasmExports['Emscripten_force_free'], 1);
   _emscripten_stack_get_end = wasmExports['emscripten_stack_get_end'];
   _emscripten_stack_get_base = wasmExports['emscripten_stack_get_base'];
+  _setThrew = createExportWrapper('setThrew', wasmExports['setThrew'], 2);
   _emscripten_stack_init = wasmExports['emscripten_stack_init'];
   _emscripten_stack_get_free = wasmExports['emscripten_stack_get_free'];
   __emscripten_stack_restore = wasmExports['_emscripten_stack_restore'];
