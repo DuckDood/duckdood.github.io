@@ -1323,7 +1323,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   mount(mount) {
         return MEMFS.createNode(null, '/', 16895, 0);
       },
-  createNode(parent, name, mode, dev) {
+  createNode(parent, name, mode, dev = undefined) {
         if (FS.isBlkdev(mode) || FS.isFIFO(mode)) {
           // not supported
           throw new FS.ErrnoError(63);
@@ -1454,6 +1454,11 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           attr.atime = new Date(node.atime);
           attr.mtime = new Date(node.mtime);
           attr.ctime = new Date(node.ctime);
+          // A Date only holds whole milliseconds: also return the exact times
+          // (e.g. as set by utimensat), which SYSCALLS.writeStat prefers.
+          attr.atimeMs = node.atime;
+          attr.mtimeMs = node.mtime;
+          attr.ctimeMs = node.ctime;
           // NOTE: In our implementation, st_blocks = Math.ceil(st_size/st_blksize),
           //       but this is not required by the standard.
           attr.blksize = 4096;
@@ -1473,7 +1478,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   lookup(parent, name) {
           throw new FS.ErrnoError(44);
         },
-  mknod(parent, name, mode, dev) {
+  mknod(parent, name, mode, dev = undefined) {
           return MEMFS.createNode(parent, name, mode, dev);
         },
   rename(old_node, new_dir, new_name) {
@@ -1481,14 +1486,11 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           try {
             new_node = FS.lookupNode(new_dir, new_name);
           } catch (e) {}
-          if (new_node) {
-            if (FS.isDir(old_node.mode)) {
-              // if we're overwriting a directory at new_name, make sure it's empty.
-              for (var i in new_node.contents) {
-                throw new FS.ErrnoError(55);
-              }
+          if (new_node && FS.isDir(old_node.mode)) {
+            // if we're overwriting a directory at new_name, make sure it's empty.
+            for (var i in new_node.contents) {
+              throw new FS.ErrnoError(55);
             }
-            FS.hashRemoveNode(new_node);
           }
           // do the internal rewiring
           delete old_node.parent.contents[old_node.name];
@@ -1935,7 +1937,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   },
   streams:[],
   nextInode:1,
-  nameTable:null,
+  nameTable:[],
   currentPath:"/",
   initialized:false,
   ignorePermissions:true,
@@ -2204,7 +2206,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         // if we failed to find it in the cache, call into the VFS
         return FS.lookup(parent, name);
       },
-  createNode(parent, name, mode, rdev) {
+  createNode(parent, name, mode, rdev = undefined) {
         assert(typeof parent == 'object')
         var node = new FS.FSNode(parent, name, mode, rdev);
   
@@ -2604,7 +2606,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         mode |= 16384;
         return FS.mknod(path, mode, 0);
       },
-  mkdirTree(path, mode) {
+  mkdirTree(path, mode = 0o777) {
         var dirs = path.split('/');
         var d = '';
         for (var dir of dirs) {
@@ -2618,7 +2620,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           }
         }
       },
-  mkdev(path, mode, dev) {
+  mkdev(path, mode, dev = undefined) {
         if (typeof dev == 'undefined') {
           dev = mode;
           mode = 0o666;
@@ -2738,6 +2740,11 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         // do the underlying fs rename
         try {
           old_dir.node_ops.rename(old_node, new_dir, new_name);
+          // The replaced node is stale now. Evict it only after the rename
+          // succeeded: backends like NODEFS report node.id as st_ino.
+          if (new_node) {
+            FS.hashRemoveNode(new_node);
+          }
           // update old node (we do this here to avoid each backend
           // needing to)
           old_node.parent = new_dir;
@@ -2808,7 +2815,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         }
         return link.node_ops.readlink(link);
       },
-  stat(path, dontFollow) {
+  stat(path, dontFollow = false) {
         var lookup = FS.lookupPath(path, { follow: !dontFollow });
         var node = lookup.node;
         var getattr = FS.checkOpExists(node.node_ops.getattr, 63);
@@ -2826,14 +2833,14 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   lstat(path) {
         return FS.stat(path, true);
       },
-  doChmod(stream, node, mode, dontFollow) {
+  doChmod(stream, node, mode, dontFollow = false) {
         FS.doSetAttr(stream, node, {
           mode: (mode & 4095) | (node.mode & ~4095),
           ctime: Date.now(),
           dontFollow
         });
       },
-  chmod(path, mode, dontFollow) {
+  chmod(path, mode, dontFollow = false) {
         var node;
         if (typeof path == 'string') {
           var lookup = FS.lookupPath(path, { follow: !dontFollow });
@@ -2850,14 +2857,14 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         var stream = FS.getStreamChecked(fd);
         FS.doChmod(stream, stream.node, mode, false);
       },
-  doChown(stream, node, dontFollow) {
+  doChown(stream, node, dontFollow = false) {
         FS.doSetAttr(stream, node, {
           timestamp: Date.now(),
           dontFollow
           // we ignore the uid / gid for now
         });
       },
-  chown(path, uid, gid, dontFollow) {
+  chown(path, uid, gid, dontFollow = false) {
         var node;
         if (typeof path == 'string') {
           var lookup = FS.lookupPath(path, { follow: !dontFollow });
@@ -2910,7 +2917,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         }
         FS.doTruncate(stream, stream.node, len);
       },
-  utime(path, atime, mtime, dontFollow) {
+  utime(path, atime, mtime, dontFollow = false) {
         var lookup = FS.lookupPath(path, { follow: !dontFollow });
         FS.doSetAttr(null, lookup.node, {
           atime: atime,
@@ -3049,7 +3056,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         stream.ungotten = [];
         return stream.position;
       },
-  read(stream, buffer, offset, length, position) {
+  read(stream, buffer, offset, length, position = undefined) {
         assert(offset >= 0);
         if (length < 0 || position < 0) {
           throw new FS.ErrnoError(28);
@@ -3076,7 +3083,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         if (!seeking) stream.position += bytesRead;
         return bytesRead;
       },
-  write(stream, buffer, offset, length, position, canOwn) {
+  write(stream, buffer, offset, length, position = undefined, canOwn = undefined) {
         assert(offset >= 0);
         assert(buffer.subarray, 'FS.write expects a TypedArray');
         if (length < 0 || position < 0) {
@@ -3291,7 +3298,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         assert(stderr.fd === 2, `invalid handle for stderr (${stderr.fd})`);
       },
   staticInit() {
-        FS.nameTable = new Array(4096);
+        FS.nameTable.length = 4096;
   
         FS.mount(MEMFS, {}, '/');
   
@@ -3303,7 +3310,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           'MEMFS': MEMFS,
         };
       },
-  init(input, output, error) {
+  init(input = undefined, output = undefined, error = undefined) {
         assert(!FS.initialized, 'FS.init was previously called. If you want to initialize later with custom parameters, remove any earlier calls (note that one is automatically added to the generated code)');
         FS.initialized = true;
   
@@ -3325,7 +3332,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           }
         }
       },
-  analyzePath(path, dontResolveLastLink) {
+  analyzePath(path, dontResolveLastLink = false) {
         warnOnce('FS.analyzePath is deprecated; use FS.lookupPath or FS.stat instead');
         // operate from within the context of the symlink's target
         try {
@@ -3354,7 +3361,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         };
         return ret;
       },
-  createPath(parent, path, canRead, canWrite) {
+  createPath(parent, path, canRead = undefined, canWrite = undefined) {
         parent = typeof parent == 'string' ? parent : FS.getPath(parent);
         var parts = path.split('/').reverse();
         while (parts.length) {
@@ -3370,12 +3377,12 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         }
         return current;
       },
-  createFile(parent, name, properties, canRead, canWrite) {
+  createFile(parent, name, properties, canRead = undefined, canWrite = undefined) {
         var path = PATH.join2(typeof parent == 'string' ? parent : FS.getPath(parent), name);
         var mode = FS_getMode(canRead, canWrite);
         return FS.create(path, mode);
       },
-  createDataFile(parent, name, data, canRead, canWrite, canOwn) {
+  createDataFile(parent, name, data = undefined, canRead = undefined, canWrite = undefined, canOwn = undefined) {
         var path = name;
         if (parent) {
           parent = typeof parent == 'string' ? parent : FS.getPath(parent);
@@ -3393,7 +3400,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           FS.chmod(node, mode);
         }
       },
-  createDevice(parent, name, input, output) {
+  createDevice(parent, name, input = undefined, output = undefined) {
         var path = PATH.join2(typeof parent == 'string' ? parent : FS.getPath(parent), name);
         var mode = FS_getMode(!!input, !!output);
         FS.createDevice.major ??= 64;
@@ -3459,7 +3466,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           }
         }
       },
-  createLazyFile(parent, name, url, canRead, canWrite) {
+  createLazyFile(parent, name, url, canRead = undefined, canWrite = undefined) {
         // Lazy chunked Uint8Array (implements get and length from Uint8Array).
         // Actual getting is abstracted away for eventual reuse.
         class LazyUint8Array {
@@ -3629,7 +3636,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   var HEAP64;
   var SYSCALLS = {
   currentUmask:18,
-  calculateAt(dirfd, path, allowEmpty) {
+  calculateAt(dirfd, path, allowEmpty = false) {
         if (PATH.isAbs(path)) {
           return path;
         }
@@ -3659,8 +3666,9 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         HEAP64[(((buf)+(24))>>3)] = BigInt(stat.size);checkInt64(stat.size);
         HEAP32[(((buf)+(32))>>2)] = 4096;checkInt32(4096);
         HEAP32[(((buf)+(36))>>2)] = stat.blocks;checkInt32(stat.blocks);
-        // Prefer `*Ms` properties if available (e.g. from NODEFS / host `fs.Stats`)
-        // for sub-millisecond precision; fall back to Date#getTime for other filesystems.
+        // Prefer `*Ms` properties if available (e.g. from MEMFS, or NODEFS / host
+        // `fs.Stats`) for sub-millisecond precision; fall back to Date#getTime for
+        // other filesystems.
         var atime = stat.atimeMs ?? stat.atime.getTime();
         var mtime = stat.mtimeMs ?? stat.mtime.getTime();
         var ctime = stat.ctimeMs ?? stat.ctime.getTime();
@@ -4935,8 +4943,6 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   
   
   
-  
-  
   var Browser = {
   useWebGL:false,
   isFullscreen:false,
@@ -5182,12 +5188,6 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         CFS.apply(document, []);
         return true;
       },
-  safeSetTimeout(func, timeout) {
-        // Legacy function, this is used by the SDL2 port so we need to keep it
-        // around at least until that is updated.
-        // See https://github.com/libsdl-org/SDL/pull/6304
-        return safeSetTimeout(func, timeout);
-      },
   getMimetype(name) {
         return {
           'jpg': 'image/jpeg',
@@ -5198,9 +5198,6 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
           'wav': 'audio/wav',
           'mp3': 'audio/mpeg'
         }[name.slice(name.lastIndexOf('.')+1)];
-      },
-  getUserMedia(func) {
-        return navigator.mediaDevices.getUserMedia(func);
       },
   getMouseWheelDelta(event) {
         var delta = 0;
@@ -5313,13 +5310,11 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         Browser.updateCanvasDimensions(canvas, width, height);
         if (!noUpdates) Browser.updateResizeListeners();
       },
-  windowedWidth:0,
-  windowedHeight:0,
   setFullscreenCanvasSize() {
         // check if SDL is available
         if (typeof SDL != 'undefined') {
           var flags = HEAPU32[((SDL.screen)>>2)];
-          flags = flags | 0x00800000; // set SDL_FULLSCREEN flag
+          flags = flags | 8388608;
           HEAP32[((SDL.screen)>>2)] = flags;checkInt32(flags);
         }
         Browser.updateCanvasDimensions(Browser.getCanvas());
@@ -5329,7 +5324,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         // check if SDL is available
         if (typeof SDL != 'undefined') {
           var flags = HEAPU32[((SDL.screen)>>2)];
-          flags = flags & ~0x00800000; // clear SDL_FULLSCREEN flag
+          flags = flags & ~8388608;
           HEAP32[((SDL.screen)>>2)] = flags;checkInt32(flags);
         }
         Browser.updateCanvasDimensions(Browser.getCanvas());
@@ -5512,7 +5507,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
         // version field in above check.
         if (!canvas.getContextSafariWebGL2Fixed) {
           canvas.getContextSafariWebGL2Fixed = canvas.getContext;
-          /** @type {function(this:HTMLCanvasElement, string, (Object|null)=): (Object|null)} */
+          /** @type {function(this:HTMLCanvasElement, string, (Object|null)=): (RenderingContext|null)} */
           function fixedGetContext(ver, attrs) {
             var gl = canvas.getContextSafariWebGL2Fixed(ver, attrs);
             return ((ver == 'webgl') == (gl instanceof WebGLRenderingContext)) ? gl : null;
@@ -5699,8 +5694,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glBindVertexArray = _emscripten_glBindVertexArray;
-  var _emscripten_glBindVertexArrayOES = _glBindVertexArray;
+  var _emscripten_glBindVertexArrayOES = _emscripten_glBindVertexArray;
 
   var _emscripten_glBlendColor = (x0, x1, x2, x3) => GLctx.blendColor(x0, x1, x2, x3);
 
@@ -6015,8 +6009,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glDeleteVertexArrays = _emscripten_glDeleteVertexArrays;
-  var _emscripten_glDeleteVertexArraysOES = _glDeleteVertexArrays;
+  var _emscripten_glDeleteVertexArraysOES = _emscripten_glDeleteVertexArrays;
 
   var _emscripten_glDepthFunc = (x0) => GLctx.depthFunc(x0);
 
@@ -6047,17 +6040,16 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glDrawArraysInstanced = _emscripten_glDrawArraysInstanced;
-  var _emscripten_glDrawArraysInstancedANGLE = _glDrawArraysInstanced;
+  var _emscripten_glDrawArraysInstancedANGLE = _emscripten_glDrawArraysInstanced;
 
   
-  var _emscripten_glDrawArraysInstancedARB = _glDrawArraysInstanced;
+  var _emscripten_glDrawArraysInstancedARB = _emscripten_glDrawArraysInstanced;
 
   
-  var _emscripten_glDrawArraysInstancedEXT = _glDrawArraysInstanced;
+  var _emscripten_glDrawArraysInstancedEXT = _emscripten_glDrawArraysInstanced;
 
   
-  var _emscripten_glDrawArraysInstancedNV = _glDrawArraysInstanced;
+  var _emscripten_glDrawArraysInstancedNV = _emscripten_glDrawArraysInstanced;
 
   var tempFixedLengthArray = [];
   
@@ -6073,11 +6065,10 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glDrawBuffers = _emscripten_glDrawBuffers;
-  var _emscripten_glDrawBuffersEXT = _glDrawBuffers;
+  var _emscripten_glDrawBuffersEXT = _emscripten_glDrawBuffers;
 
   
-  var _emscripten_glDrawBuffersWEBGL = _glDrawBuffers;
+  var _emscripten_glDrawBuffersWEBGL = _emscripten_glDrawBuffers;
 
   
   var _emscripten_glDrawElements = (mode, count, type, indices) => {
@@ -6091,17 +6082,16 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glDrawElementsInstanced = _emscripten_glDrawElementsInstanced;
-  var _emscripten_glDrawElementsInstancedANGLE = _glDrawElementsInstanced;
+  var _emscripten_glDrawElementsInstancedANGLE = _emscripten_glDrawElementsInstanced;
 
   
-  var _emscripten_glDrawElementsInstancedARB = _glDrawElementsInstanced;
+  var _emscripten_glDrawElementsInstancedARB = _emscripten_glDrawElementsInstanced;
 
   
-  var _emscripten_glDrawElementsInstancedEXT = _glDrawElementsInstanced;
+  var _emscripten_glDrawElementsInstancedEXT = _emscripten_glDrawElementsInstanced;
 
   
-  var _emscripten_glDrawElementsInstancedNV = _glDrawElementsInstanced;
+  var _emscripten_glDrawElementsInstancedNV = _emscripten_glDrawElementsInstanced;
 
   var _glDrawElements = _emscripten_glDrawElements;
   var _emscripten_glDrawRangeElements = (mode, start, end, count, type, indices) => {
@@ -6214,8 +6204,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glGenVertexArrays = _emscripten_glGenVertexArrays;
-  var _emscripten_glGenVertexArraysOES = _glGenVertexArrays;
+  var _emscripten_glGenVertexArraysOES = _emscripten_glGenVertexArrays;
 
   var _emscripten_glGenerateMipmap = (x0) => GLctx.generateMipmap(x0);
 
@@ -6723,8 +6712,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glGetQueryObjecti64vEXT = _emscripten_glGetQueryObjecti64vEXT;
-  var _emscripten_glGetQueryObjectui64vEXT = _glGetQueryObjecti64vEXT;
+  var _emscripten_glGetQueryObjectui64vEXT = _emscripten_glGetQueryObjecti64vEXT;
 
   var _emscripten_glGetQueryObjectuiv = (id, pname, params) => {
       if (!params) {
@@ -6745,8 +6733,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glGetQueryObjectivEXT = _emscripten_glGetQueryObjectivEXT;
-  var _emscripten_glGetQueryObjectuivEXT = _glGetQueryObjectivEXT;
+  var _emscripten_glGetQueryObjectuivEXT = _emscripten_glGetQueryObjectivEXT;
 
   var _emscripten_glGetQueryiv = (target, pname, params) => {
       if (!params) {
@@ -7225,8 +7212,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glGetVertexAttribIiv = _emscripten_glGetVertexAttribIiv;
-  var _emscripten_glGetVertexAttribIuiv = _glGetVertexAttribIiv;
+  var _emscripten_glGetVertexAttribIuiv = _emscripten_glGetVertexAttribIiv;
 
   
   var _emscripten_glGetVertexAttribPointerv = (index, pname, pointer) => {
@@ -7346,8 +7332,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glIsVertexArray = _emscripten_glIsVertexArray;
-  var _emscripten_glIsVertexArrayOES = _glIsVertexArray;
+  var _emscripten_glIsVertexArrayOES = _emscripten_glIsVertexArray;
 
   var _emscripten_glLineWidth = (x0) => GLctx.lineWidth(x0);
 
@@ -7880,17 +7865,16 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
     };
 
   
-  var _glVertexAttribDivisor = _emscripten_glVertexAttribDivisor;
-  var _emscripten_glVertexAttribDivisorANGLE = _glVertexAttribDivisor;
+  var _emscripten_glVertexAttribDivisorANGLE = _emscripten_glVertexAttribDivisor;
 
   
-  var _emscripten_glVertexAttribDivisorARB = _glVertexAttribDivisor;
+  var _emscripten_glVertexAttribDivisorARB = _emscripten_glVertexAttribDivisor;
 
   
-  var _emscripten_glVertexAttribDivisorEXT = _glVertexAttribDivisor;
+  var _emscripten_glVertexAttribDivisorEXT = _emscripten_glVertexAttribDivisor;
 
   
-  var _emscripten_glVertexAttribDivisorNV = _glVertexAttribDivisor;
+  var _emscripten_glVertexAttribDivisorNV = _emscripten_glVertexAttribDivisor;
 
   var _emscripten_glVertexAttribI4i = (x0, x1, x2, x3, x4) => GLctx.vertexAttribI4i(x0, x1, x2, x3, x4);
 
@@ -8835,6 +8819,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
 
   var _glBindTexture = _emscripten_glBindTexture;
 
+  var _glBindVertexArray = _emscripten_glBindVertexArray;
 
   var _glBufferData = _emscripten_glBufferData;
 
@@ -8852,6 +8837,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
 
   var _glDeleteShader = _emscripten_glDeleteShader;
 
+  var _glDrawArraysInstanced = _emscripten_glDrawArraysInstanced;
 
 
   var _glEnable = _emscripten_glEnable;
@@ -8862,6 +8848,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
 
   var _glGenTextures = _emscripten_glGenTextures;
 
+  var _glGenVertexArrays = _emscripten_glGenVertexArrays;
 
   var _glGenerateMipmap = _emscripten_glGenerateMipmap;
 
@@ -8893,6 +8880,7 @@ var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
 
   var _glUseProgram = _emscripten_glUseProgram;
 
+  var _glVertexAttribDivisor = _emscripten_glVertexAttribDivisor;
 
   var _glVertexAttribPointer = _emscripten_glVertexAttribPointer;
 
@@ -9260,7 +9248,6 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'strError',
   'DNS',
   'Protocols',
-  'Sockets',
   'timers',
   'warnOnce',
   'readEmAsmArgsArray',
@@ -9347,14 +9334,11 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'randomFill',
   'safeSetTimeout',
   'emSetImmediate',
-  'emClearImmediate_deps',
   'emClearImmediate',
   'promiseMap',
   'Browser',
   'setCanvasSize',
-  'getUserMedia',
   'createContext',
-  'getPreloadedImageData__data',
   'wget',
   'MONTH_DAYS_REGULAR',
   'MONTH_DAYS_LEAP',
