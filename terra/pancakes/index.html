@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+	<head>
+
+	</head>
+	<body>
+	</body>
+	<script type="importmap">
+	{
+	  "imports": {
+		"three": "https://cdn.jsdelivr.net/npm/three@v0.186.1/build/three.module.js",
+	    "three/addons/": "https://cdn.jsdelivr.net/npm/three@v0.186.1/examples/jsm/"
+	  }
+	}
+	</script>
+
+	<script type="module">
+		import * as THREE from 'three';
+		import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+		import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+
+		const scene = new THREE.Scene();
+		const camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
+		const loader = new OBJLoader();
+		const renderer = new THREE.WebGLRenderer();
+		const controls = new OrbitControls( camera, renderer.domElement );
+
+
+		renderer.setSize( window.innerWidth * 0.95, window.innerHeight * 0.95);
+		document.body.appendChild( renderer.domElement );
+
+		const light = new THREE.AmbientLight( 0x404040 ); // soft white light
+		scene.add( light );
+		const directionalLight = new THREE.DirectionalLight( 0xffffff, 1 );
+		directionalLight.position.set(-10, 30, 50);
+		scene.add( directionalLight );
+
+		const material = new THREE.MeshStandardMaterial( {color: 0xffb85c } );
+
+		let rocks = await loader.loadAsync( 'rocks.obj' );
+		rocks.children[0].material = material;
+		console.log(rocks);
+
+		scene.add( rocks );
+		
+		camera.position.set( 0, 20, 50 );
+		controls.update();
+
+
+		function animate( time ) {
+			controls.update();
+  			renderer.render( scene, camera );
+		}
+		renderer.setAnimationLoop( animate );
+	</script>
+</html>
