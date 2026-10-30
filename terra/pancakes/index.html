@@ -14,7 +14,15 @@
 	}
 	</script>
 
+	<button id="loadbutton">generate new (will be less detailed because generation is slower on web)(will hang site while generating, check progress in console)</button>
+	<button id="downloadbutton">download obj</button>
 	<script type="module">
+		/*Module.print(text) {
+			console.log("text" + text + "\n");
+		}*/
+/*		Module.print = function(text) {
+				console.log("text" + text + "\n");
+			}*/
 		import * as THREE from 'three';
 		import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 		import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
@@ -46,6 +54,41 @@
 		camera.position.set( 0, 20, 50 );
 		controls.update();
 
+		document.getElementById("downloadbutton").onclick = function() {
+			if(Module.FS.analyzePath("layer.obj").exists) {
+				download(Module.FS.readFile("layer.obj", {encoding: 'utf8'}), "rocks.obj", 'utf8');
+			} else {
+        var a = document.createElement('a');
+        a.href = "rocks.obj";
+        a.download = "rocks.obj";
+        a.click();
+			}
+		}
+		// Source - https://stackoverflow.com/a/19230668␍
+// Posted by Yassir Ennazk␍
+// Retrieved 2026-10-31, License - CC BY-SA 3.0␍
+function download(content, filename, contentType)
+{
+    if(!contentType) contentType = 'application/octet-stream';
+        var a = document.createElement('a');
+        var blob = new Blob([content], {'type':contentType});
+        a.href = window.URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+}
+
+
+			let newrocks;
+		document.getElementById("loadbutton").onclick = async() => {
+			scene.remove(rocks);
+			scene.remove(newrocks);
+			Module.callMain();
+			console.log(Module.FS.readFile("layer.obj", {encoding: 'utf8'}));
+			newrocks = loader.parse(Module.FS.readFile("layer.obj", {encoding: 'utf8'}));
+			newrocks.children[0].material = material;
+
+			scene.add( newrocks );
+		}
 
 		function animate( time ) {
 			controls.update();
@@ -53,4 +96,5 @@
 		}
 		renderer.setAnimationLoop( animate );
 	</script>
+	<script src="rock_gen.js"></script>
 </html>
