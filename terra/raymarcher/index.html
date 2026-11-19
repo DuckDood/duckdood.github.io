@@ -127,6 +127,7 @@ canvas.emscripten { border: 0px none; background-color: black; }
       <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
     </div>
 	  <span>For reviewers, this is a newer version of the raymarcher that's a dramatically faster on dedicated GPUs, and a bit faster on integrated ones. The only other difference is the ability to resize the window. You can see the original version <a href="https://duckdood.github.io/terra/raymarcher_old">here</a>, or use the old github release.</span>
+	  <h6>dont believe the 0ms render time, WebGL is reporting the times weirdly.</h6>
     <textarea id="output" rows="8"></textarea>
 
     <script type='text/javascript'>
