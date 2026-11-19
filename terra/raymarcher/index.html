@@ -110,13 +110,13 @@ canvas.emscripten { border: 0px none; background-color: black; }
 
     <span id='controls'>
 		<span>Controls: WASD + Mouse</span>
-      <!--<span><input type="checkbox" id="resize">Resize canvas</span>
+      <span><input type="checkbox" id="resize">Resize canvas</span>
       <span><input type="checkbox" id="pointerLock" checked>Lock/hide mouse pointer &nbsp;&nbsp;&nbsp;</span>
       <span><input type="button" value="Fullscreen" onclick="Module.requestFullscreen(document.getElementById('pointerLock').checked,
-													document.getElementById('resize').checked)">-->
-      </span>
+													document.getElementById('resize').checked)">
+	  </span>
 	  <br>
-	  <span>May be slow because for some reason arrays are really slow on WebGL. I swear it runs faster natively! Also if it's not loading for a couple seconds, it's probably compiling shaders! It shouldn't take a really long time though.</span>
+	  <span>May take some time to compile at first.</span>
     </span>
 
     <div class="emscripten">
@@ -126,6 +126,7 @@ canvas.emscripten { border: 0px none; background-color: black; }
     <div class="emscripten_border">
       <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
     </div>
+	  <span>For reviewers, this is a newer version of the raymarcher that's way faster on dedicated GPUs. The only other difference is the ability to resize the window. You can see the original version <a href="https://duckdood.github.io/terra/raymarcher_old">here</a>, or use the old github release.</span>
     <textarea id="output" rows="8"></textarea>
 
     <script type='text/javascript'>
